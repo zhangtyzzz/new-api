@@ -191,3 +191,38 @@ func TestLogQuotaDataSplitsRowsByUseGroupTokenChannelAndNode(t *testing.T) {
 	require.Equal(t, "default", rows[1].UseGroup)
 	require.Equal(t, 25, rows[1].Quota)
 }
+
+func TestLogQuotaDataFlushesImmediatelyInDatabaseIdleMode(t *testing.T) {
+	originalIdleMode := common.DatabaseIdleMode
+	t.Cleanup(func() {
+		common.DatabaseIdleMode = originalIdleMode
+	})
+
+	common.DatabaseIdleMode = true
+	truncateTables(t)
+	CacheQuotaDataLock.Lock()
+	CacheQuotaData = make(map[string]*QuotaData)
+	CacheQuotaDataLock.Unlock()
+
+	LogQuotaData(QuotaDataLogParams{
+		UserID:    1,
+		Username:  "alice",
+		ModelName: "gpt-a",
+		CreatedAt: 3661,
+		UseGroup:  "default",
+		TokenID:   11,
+		ChannelID: 1,
+		NodeName:  "node-a",
+		Quota:     100,
+		TokenUsed: 40,
+	})
+
+	var row QuotaData
+	require.NoError(t, DB.First(&row).Error)
+	require.Equal(t, 100, row.Quota)
+	require.Equal(t, 40, row.TokenUsed)
+
+	CacheQuotaDataLock.Lock()
+	defer CacheQuotaDataLock.Unlock()
+	require.Empty(t, CacheQuotaData)
+}

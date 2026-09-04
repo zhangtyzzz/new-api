@@ -143,9 +143,9 @@ func main() {
 		service.StartSystemInstanceReporter()
 	}
 
-	// The dashboard cache only reaches the database when a real request has
-	// produced data, so it does not prevent an otherwise idle database sleeping.
-	go model.UpdateQuotaData()
+	if !common.DatabaseIdleMode {
+		go model.UpdateQuotaData()
+	}
 
 	// Wire task polling adaptor factory (breaks service -> relay import cycle).
 	// Must run before the system task runner starts: the async_task_poll handler

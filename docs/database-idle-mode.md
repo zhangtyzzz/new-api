@@ -12,7 +12,9 @@ The mode removes periodic database activity from:
   asynchronous task polling);
 - subscription quota maintenance and Codex credential pre-refresh;
 - expired dashboard-auth artifact cleanup;
-- model performance-metric collection and retention cleanup.
+- model performance-metric collection and retention cleanup;
+- the periodic quota-dashboard flush timer. Request-generated quota data is
+  flushed immediately while the request already has the database awake.
 
 The system-task runner remains available in a wake-driven form, so tasks
 created by this same process through the management API can still run without

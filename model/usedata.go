@@ -93,14 +93,23 @@ func LogQuotaData(params QuotaDataLogParams) {
 	}
 
 	CacheQuotaDataLock.Lock()
-	defer CacheQuotaDataLock.Unlock()
 	logQuotaDataCache(quotaData)
+	CacheQuotaDataLock.Unlock()
+
+	// Idle mode has no periodic flush loop. Persist request-generated dashboard
+	// data while the request has already woken the database instead.
+	if common.DatabaseIdleMode {
+		SaveQuotaDataCache()
+	}
 }
 
 func SaveQuotaDataCache() {
 	CacheQuotaDataLock.Lock()
 	defer CacheQuotaDataLock.Unlock()
 	size := len(CacheQuotaData)
+	if size == 0 {
+		return
+	}
 	// 如果缓存中有数据，就保存到数据库中
 	// 1. 先查询数据库中是否有数据
 	// 2. 如果有数据，就更新数据
