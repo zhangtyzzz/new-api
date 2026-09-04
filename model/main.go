@@ -23,7 +23,8 @@ import (
 func sqlMaxIdleConns() int {
 	maxIdleConns := common.GetEnvOrDefault("SQL_MAX_IDLE_CONNS", 100)
 	if common.DatabaseIdleMode {
-		if _, explicitlyConfigured := os.LookupEnv("SQL_MAX_IDLE_CONNS"); !explicitlyConfigured {
+		configuredValue, explicitlyConfigured := os.LookupEnv("SQL_MAX_IDLE_CONNS")
+		if !explicitlyConfigured || strings.TrimSpace(configuredValue) == "" {
 			return 0
 		}
 	}
