@@ -17,13 +17,21 @@ concurrency:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    name: Build (${{ matrix.arch }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            platform: linux/amd64
+            runner: ubuntu-latest
+          - arch: arm64
+            platform: linux/arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
     steps:
       - name: Check out
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
@@ -35,19 +43,45 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and push multi-architecture image
+      - name: Build and push native image
         uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
         with:
           context: .
-          platforms: linux/amd64,linux/arm64
+          platforms: ${{ matrix.platform }}
           push: true
           tags: |
-            ghcr.io/${{ github.repository_owner }}/new-api:neon-sleep
-            ghcr.io/${{ github.repository_owner }}/new-api:neon-sleep-${{ github.sha }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+            ghcr.io/${{ github.repository_owner }}/new-api:neon-sleep-${{ matrix.arch }}
+            ghcr.io/${{ github.repository_owner }}/new-api:neon-sleep-${{ github.sha }}-${{ matrix.arch }}
+          cache-from: type=gha,scope=${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.arch }}
           provenance: mode=max
           sbom: true
+
+  manifest:
+    name: Publish multi-architecture manifest
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@c99871dec2022cc055c062a10cc1a1310835ceb4 # v4.3.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create and push manifests
+        run: |
+          docker buildx imagetools create \
+            --tag ghcr.io/${{ github.repository_owner }}/new-api:neon-sleep \
+            ghcr.io/${{ github.repository_owner }}/new-api:neon-sleep-amd64 \
+            ghcr.io/${{ github.repository_owner }}/new-api:neon-sleep-arm64
+          docker buildx imagetools create \
+            --tag ghcr.io/${{ github.repository_owner }}/new-api:neon-sleep-${{ github.sha }} \
+            ghcr.io/${{ github.repository_owner }}/new-api:neon-sleep-${{ github.sha }}-amd64 \
+            ghcr.io/${{ github.repository_owner }}/new-api:neon-sleep-${{ github.sha }}-arm64
 
       - name: Image summary
         run: |
