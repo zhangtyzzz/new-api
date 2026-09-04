@@ -32,13 +32,21 @@ func sqlMaxIdleConns() int {
 }
 
 func configureSQLConnectionPool(sqlDB *sql.DB) {
-	maxIdleConns := sqlMaxIdleConns()
-	if common.DatabaseIdleMode && maxIdleConns == 0 {
-		common.SysLog("database idle mode: SQL_MAX_IDLE_CONNS is 0")
-	}
-	sqlDB.SetMaxIdleConns(maxIdleConns)
+	// Keep a small reusable pool during startup: migrations issue many metadata
+	// queries and would otherwise reconnect for every statement. Idle mode applies
+	// its final zero-idle policy after startup initialization finishes.
+	sqlDB.SetMaxIdleConns(common.GetEnvOrDefault("SQL_MAX_IDLE_CONNS", 100))
 	sqlDB.SetMaxOpenConns(common.GetEnvOrDefault("SQL_MAX_OPEN_CONNS", 1000))
 	sqlDB.SetConnMaxLifetime(time.Second * time.Duration(common.GetEnvOrDefault("SQL_MAX_LIFETIME", 60)))
+}
+
+func applySQLIdleConnectionPolicy(sqlDB *sql.DB) {
+	if !common.DatabaseIdleMode {
+		return
+	}
+	maxIdleConns := sqlMaxIdleConns()
+	sqlDB.SetMaxIdleConns(maxIdleConns)
+	common.SysLog(fmt.Sprintf("database idle mode: post-startup SQL_MAX_IDLE_CONNS is %d", maxIdleConns))
 }
 
 var commonGroupCol string
@@ -233,6 +241,7 @@ func InitDB() (err error) {
 		configureSQLConnectionPool(sqlDB)
 
 		if !common.IsMasterNode {
+			applySQLIdleConnectionPolicy(sqlDB)
 			return nil
 		}
 		if common.UsingMainDatabase(common.DatabaseTypeMySQL) {
@@ -240,6 +249,7 @@ func InitDB() (err error) {
 		}
 		common.SysLog("database migration started")
 		err = migrateDB()
+		applySQLIdleConnectionPolicy(sqlDB)
 		return err
 	} else {
 		common.FatalLog(err)
@@ -275,10 +285,12 @@ func InitLogDB() (err error) {
 		configureSQLConnectionPool(sqlDB)
 
 		if !common.IsMasterNode {
+			applySQLIdleConnectionPolicy(sqlDB)
 			return nil
 		}
 		common.SysLog("database migration started")
 		err = migrateLOGDB()
+		applySQLIdleConnectionPolicy(sqlDB)
 		return err
 	} else {
 		common.FatalLog(err)

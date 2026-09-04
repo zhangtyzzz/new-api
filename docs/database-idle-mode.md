@@ -15,8 +15,9 @@ The mode removes periodic database activity from:
 - model performance-metric collection and retention cleanup;
 - the periodic quota-dashboard flush timer. Request-generated quota data is
   flushed immediately while the request already has the database awake;
-- idle SQL connections: `SQL_MAX_IDLE_CONNS` defaults to `0` in this mode so
-  the application does not hold the serverless compute open after a request;
+- idle SQL connections: after startup, `SQL_MAX_IDLE_CONNS` defaults to `0` in
+  this mode so the application does not hold the serverless compute open after
+  a request (startup migrations still reuse connections);
 - batch quota updates: `BATCH_UPDATE_ENABLED=true` is ignored in this mode and
   quota writes stay synchronous instead of relying on a background flush loop.
 
