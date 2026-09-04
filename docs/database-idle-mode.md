@@ -17,7 +17,8 @@ The mode removes periodic database activity from:
   flushed immediately while the request already has the database awake;
 - idle SQL connections: after startup, `SQL_MAX_IDLE_CONNS` defaults to `0` in
   this mode so the application does not hold the serverless compute open after
-  a request (startup migrations still reuse connections);
+  a request. An explicit `0` is honored after initialization while startup
+  migrations temporarily reuse a small connection pool;
 - batch quota updates: `BATCH_UPDATE_ENABLED=true` is ignored in this mode and
   quota writes stay synchronous instead of relying on a background flush loop.
 

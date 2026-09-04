@@ -35,7 +35,11 @@ func configureSQLConnectionPool(sqlDB *sql.DB) {
 	// Keep a small reusable pool during startup: migrations issue many metadata
 	// queries and would otherwise reconnect for every statement. Idle mode applies
 	// its final zero-idle policy after startup initialization finishes.
-	sqlDB.SetMaxIdleConns(common.GetEnvOrDefault("SQL_MAX_IDLE_CONNS", 100))
+	startupMaxIdleConns := common.GetEnvOrDefault("SQL_MAX_IDLE_CONNS", 100)
+	if common.DatabaseIdleMode && startupMaxIdleConns == 0 {
+		startupMaxIdleConns = 10
+	}
+	sqlDB.SetMaxIdleConns(startupMaxIdleConns)
 	sqlDB.SetMaxOpenConns(common.GetEnvOrDefault("SQL_MAX_OPEN_CONNS", 1000))
 	sqlDB.SetConnMaxLifetime(time.Second * time.Duration(common.GetEnvOrDefault("SQL_MAX_LIFETIME", 60)))
 }
