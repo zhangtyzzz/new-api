@@ -340,6 +340,7 @@ docker run --name new-api -d --restart always \
 | `PYROSCOPE_MUTEX_RATE` | Pyroscope mutex sampling rate | `5` |
 | `PYROSCOPE_BLOCK_RATE` | Pyroscope block sampling rate | `5` |
 | `HOSTNAME` | Hostname tag for Pyroscope | `new-api` |
+| `DATABASE_IDLE_MODE` | Disable periodic database polling for single-node serverless PostgreSQL deployments | `true` in this fork's Docker image |
 
 📖 **Complete configuration:** [Environment Variables Documentation](https://docs.newapi.pro/en/docs/installation/config-maintenance/environment-variables)
 

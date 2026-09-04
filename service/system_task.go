@@ -130,30 +130,39 @@ func StartSystemTaskRunner() {
 		gopool.Go(func() {
 			logger.LogInfo(context.Background(), fmt.Sprintf("system task runner started: runner=%s idle_interval=%s", runnerID, systemTaskRunnerIdleInterval))
 
-			ticker := time.NewTicker(systemTaskRunnerIdleInterval)
-			defer ticker.Stop()
-
 			var lastScheduler time.Time
 			var lastStaleLockCleanup time.Time
 			runPass := func() {
 				// The scheduler/stale-lock pass is throttled independently of the
 				// claim pass: wakeups (e.g. a manual log cleanup) should claim
 				// immediately without re-running the scheduler every time.
-				now := time.Now()
-				if now.Sub(lastStaleLockCleanup) >= systemTaskStaleLockInterval {
-					lastStaleLockCleanup = now
-					if err := model.ExpireStaleSystemTaskLocks(common.GetTimestamp()); err != nil {
-						logger.LogWarn(context.Background(), fmt.Sprintf("system task stale lock cleanup failed: %v", err))
+				if !common.DatabaseIdleMode {
+					now := time.Now()
+					if now.Sub(lastStaleLockCleanup) >= systemTaskStaleLockInterval {
+						lastStaleLockCleanup = now
+						if err := model.ExpireStaleSystemTaskLocks(common.GetTimestamp()); err != nil {
+							logger.LogWarn(context.Background(), fmt.Sprintf("system task stale lock cleanup failed: %v", err))
+						}
 					}
-				}
-				if now.Sub(lastScheduler) >= systemTaskSchedulerInterval {
-					lastScheduler = now
-					runSystemTaskScheduler()
+					if now.Sub(lastScheduler) >= systemTaskSchedulerInterval {
+						lastScheduler = now
+						runSystemTaskScheduler()
+					}
 				}
 				runSystemTaskClaimPass(runnerID)
 			}
 
 			runPass()
+			if common.DatabaseIdleMode {
+				logger.LogInfo(context.Background(), "system task runner is wake-driven in database idle mode")
+				for range systemTaskWakeup {
+					runPass()
+				}
+				return
+			}
+
+			ticker := time.NewTicker(systemTaskRunnerIdleInterval)
+			defer ticker.Stop()
 			for {
 				select {
 				case <-ticker.C:

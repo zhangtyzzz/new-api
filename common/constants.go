@@ -91,6 +91,11 @@ var EmailLoginAuthServerList = []string{
 var DebugEnabled bool
 var MemoryCacheEnabled bool
 
+// DatabaseIdleMode disables periodic database polling so serverless databases
+// can scale to zero between real requests. It is intended for single-node,
+// low-traffic deployments; request-driven database access is unchanged.
+var DatabaseIdleMode bool
+
 var LogConsumeEnabled = true
 
 var TLSInsecureSkipVerify bool

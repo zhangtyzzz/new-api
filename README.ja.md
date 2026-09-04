@@ -340,6 +340,7 @@ docker run --name new-api -d --restart always \
 | `PYROSCOPE_MUTEX_RATE` | Pyroscope mutexサンプリング率 | `5` |
 | `PYROSCOPE_BLOCK_RATE` | Pyroscope blockサンプリング率 | `5` |
 | `HOSTNAME` | Pyroscope用のホスト名タグ | `new-api` |
+| `DATABASE_IDLE_MODE` | 単一ノードのサーバーレス PostgreSQL 環境で定期的な DB ポーリングを無効化 | この fork の Docker イメージでは `true` |
 
 📖 **完全な設定:** [環境変数ドキュメント](https://docs.newapi.pro/ja/docs/installation/config-maintenance/environment-variables)
 

@@ -55,6 +55,9 @@ func RecordRelaySample(info *relaycommon.RelayInfo, success bool, outputTokens i
 }
 
 func Record(sample Sample) {
+	if common.DatabaseIdleMode {
+		return
+	}
 	setting := perf_metrics_setting.GetSetting()
 	if !setting.Enabled || sample.Model == "" {
 		return
