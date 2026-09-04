@@ -1,6 +1,7 @@
 package model
 
 import (
+	"database/sql"
 	"fmt"
 	"log"
 	"net/url"
@@ -18,6 +19,26 @@ import (
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 )
+
+func sqlMaxIdleConns() int {
+	maxIdleConns := common.GetEnvOrDefault("SQL_MAX_IDLE_CONNS", 100)
+	if common.DatabaseIdleMode {
+		if _, explicitlyConfigured := os.LookupEnv("SQL_MAX_IDLE_CONNS"); !explicitlyConfigured {
+			return 0
+		}
+	}
+	return maxIdleConns
+}
+
+func configureSQLConnectionPool(sqlDB *sql.DB) {
+	maxIdleConns := sqlMaxIdleConns()
+	if common.DatabaseIdleMode && maxIdleConns == 0 {
+		common.SysLog("database idle mode: SQL_MAX_IDLE_CONNS is 0")
+	}
+	sqlDB.SetMaxIdleConns(maxIdleConns)
+	sqlDB.SetMaxOpenConns(common.GetEnvOrDefault("SQL_MAX_OPEN_CONNS", 1000))
+	sqlDB.SetConnMaxLifetime(time.Second * time.Duration(common.GetEnvOrDefault("SQL_MAX_LIFETIME", 60)))
+}
 
 var commonGroupCol string
 var commonKeyCol string
@@ -208,9 +229,7 @@ func InitDB() (err error) {
 		if err != nil {
 			return err
 		}
-		sqlDB.SetMaxIdleConns(common.GetEnvOrDefault("SQL_MAX_IDLE_CONNS", 100))
-		sqlDB.SetMaxOpenConns(common.GetEnvOrDefault("SQL_MAX_OPEN_CONNS", 1000))
-		sqlDB.SetConnMaxLifetime(time.Second * time.Duration(common.GetEnvOrDefault("SQL_MAX_LIFETIME", 60)))
+		configureSQLConnectionPool(sqlDB)
 
 		if !common.IsMasterNode {
 			return nil
@@ -252,9 +271,7 @@ func InitLogDB() (err error) {
 		if err != nil {
 			return err
 		}
-		sqlDB.SetMaxIdleConns(common.GetEnvOrDefault("SQL_MAX_IDLE_CONNS", 100))
-		sqlDB.SetMaxOpenConns(common.GetEnvOrDefault("SQL_MAX_OPEN_CONNS", 1000))
-		sqlDB.SetConnMaxLifetime(time.Second * time.Duration(common.GetEnvOrDefault("SQL_MAX_LIFETIME", 60)))
+		configureSQLConnectionPool(sqlDB)
 
 		if !common.IsMasterNode {
 			return nil

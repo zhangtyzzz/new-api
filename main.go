@@ -166,10 +166,12 @@ func main() {
 	controller.RegisterScheduledSystemTasks()
 	service.StartSystemTaskRunner()
 
-	if os.Getenv("BATCH_UPDATE_ENABLED") == "true" {
+	if os.Getenv("BATCH_UPDATE_ENABLED") == "true" && !common.DatabaseIdleMode {
 		common.BatchUpdateEnabled = true
 		common.SysLog("batch update enabled with interval " + strconv.Itoa(common.BatchUpdateInterval) + "s")
 		model.InitBatchUpdater()
+	} else if os.Getenv("BATCH_UPDATE_ENABLED") == "true" {
+		common.SysLog("database idle mode: batch updates disabled; quota writes are synchronous")
 	}
 
 	if os.Getenv("ENABLE_PPROF") == "true" {
