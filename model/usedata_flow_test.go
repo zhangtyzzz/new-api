@@ -1,10 +1,12 @@
 package model
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/stretchr/testify/require"
+	"gorm.io/gorm"
 )
 
 func seedFlowQuotaData(t *testing.T, quotaData QuotaData) {
@@ -190,4 +192,78 @@ func TestLogQuotaDataSplitsRowsByUseGroupTokenChannelAndNode(t *testing.T) {
 	require.Equal(t, 60, rows[0].TokenUsed)
 	require.Equal(t, "default", rows[1].UseGroup)
 	require.Equal(t, 25, rows[1].Quota)
+}
+
+func TestLogQuotaDataFlushesImmediatelyInDatabaseIdleMode(t *testing.T) {
+	originalIdleMode := common.DatabaseIdleMode
+	t.Cleanup(func() {
+		common.DatabaseIdleMode = originalIdleMode
+	})
+
+	common.DatabaseIdleMode = true
+	truncateTables(t)
+	CacheQuotaDataLock.Lock()
+	CacheQuotaData = make(map[string]*QuotaData)
+	CacheQuotaDataLock.Unlock()
+
+	LogQuotaData(QuotaDataLogParams{
+		UserID:    1,
+		Username:  "alice",
+		ModelName: "gpt-a",
+		CreatedAt: 3661,
+		UseGroup:  "default",
+		TokenID:   11,
+		ChannelID: 1,
+		NodeName:  "node-a",
+		Quota:     100,
+		TokenUsed: 40,
+	})
+
+	var row QuotaData
+	require.NoError(t, DB.First(&row).Error)
+	require.Equal(t, 100, row.Quota)
+	require.Equal(t, 40, row.TokenUsed)
+
+	CacheQuotaDataLock.Lock()
+	defer CacheQuotaDataLock.Unlock()
+	require.Empty(t, CacheQuotaData)
+}
+
+func TestIdleModeQuotaFlushRetainsDataAfterDatabaseFailure(t *testing.T) {
+	originalIdleMode := common.DatabaseIdleMode
+	t.Cleanup(func() {
+		common.DatabaseIdleMode = originalIdleMode
+	})
+	common.DatabaseIdleMode = true
+	truncateTables(t)
+	CacheQuotaDataLock.Lock()
+	CacheQuotaData = make(map[string]*QuotaData)
+	CacheQuotaDataLock.Unlock()
+
+	callbackName := "test:fail_quota_data_create"
+	require.NoError(t, DB.Callback().Create().Before("gorm:create").Register(callbackName, func(tx *gorm.DB) {
+		if tx.Statement.Table == "quota_data" {
+			tx.AddError(errors.New("injected quota data write failure"))
+		}
+	}))
+	t.Cleanup(func() {
+		require.NoError(t, DB.Callback().Create().Remove(callbackName))
+	})
+
+	LogQuotaData(QuotaDataLogParams{
+		UserID:    1,
+		Username:  "alice",
+		ModelName: "gpt-a",
+		CreatedAt: 3661,
+		UseGroup:  "default",
+		TokenID:   11,
+		ChannelID: 1,
+		NodeName:  "node-a",
+		Quota:     100,
+		TokenUsed: 40,
+	})
+
+	CacheQuotaDataLock.Lock()
+	defer CacheQuotaDataLock.Unlock()
+	require.Len(t, CacheQuotaData, 1, "failed quota data must remain queued for retry")
 }

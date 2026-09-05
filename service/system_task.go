@@ -130,9 +130,6 @@ func StartSystemTaskRunner() {
 		gopool.Go(func() {
 			logger.LogInfo(context.Background(), fmt.Sprintf("system task runner started: runner=%s idle_interval=%s", runnerID, systemTaskRunnerIdleInterval))
 
-			ticker := time.NewTicker(systemTaskRunnerIdleInterval)
-			defer ticker.Stop()
-
 			var lastScheduler time.Time
 			var lastStaleLockCleanup time.Time
 			runPass := func() {
@@ -154,6 +151,16 @@ func StartSystemTaskRunner() {
 			}
 
 			runPass()
+			if common.DatabaseIdleMode {
+				logger.LogInfo(context.Background(), "system task runner is wake-driven in database idle mode")
+				for range systemTaskWakeup {
+					runPass()
+				}
+				return
+			}
+
+			ticker := time.NewTicker(systemTaskRunnerIdleInterval)
+			defer ticker.Stop()
 			for {
 				select {
 				case <-ticker.C:
@@ -175,6 +182,7 @@ func StartLogCleanupTask(targetTimestamp int64) (*model.SystemTask, error) {
 		return nil, err
 	}
 	if activeTask != nil {
+		notifySystemTaskRunner()
 		return activeTask, nil
 	}
 
@@ -187,6 +195,7 @@ func StartLogCleanupTask(targetTimestamp int64) (*model.SystemTask, error) {
 	if err != nil {
 		activeTask, activeErr := model.GetActiveSystemTask(model.SystemTaskTypeLogCleanup)
 		if activeErr == nil && activeTask != nil {
+			notifySystemTaskRunner()
 			return activeTask, nil
 		}
 		return nil, err
@@ -204,6 +213,7 @@ func EnqueueSystemTask(taskType string, payload any) (*model.SystemTask, bool, e
 		return nil, false, err
 	}
 	if activeTask != nil {
+		notifySystemTaskRunner()
 		return activeTask, false, nil
 	}
 
@@ -211,6 +221,7 @@ func EnqueueSystemTask(taskType string, payload any) (*model.SystemTask, bool, e
 	if err != nil {
 		activeTask, activeErr := model.GetActiveSystemTask(taskType)
 		if activeErr == nil && activeTask != nil {
+			notifySystemTaskRunner()
 			return activeTask, false, nil
 		}
 		return nil, false, err

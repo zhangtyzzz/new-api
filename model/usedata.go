@@ -1,6 +1,7 @@
 package model
 
 import (
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -93,38 +94,58 @@ func LogQuotaData(params QuotaDataLogParams) {
 	}
 
 	CacheQuotaDataLock.Lock()
-	defer CacheQuotaDataLock.Unlock()
 	logQuotaDataCache(quotaData)
+	CacheQuotaDataLock.Unlock()
+
+	// Idle mode has no periodic flush loop. Persist request-generated dashboard
+	// data while the request has already woken the database instead.
+	if common.DatabaseIdleMode {
+		SaveQuotaDataCache()
+	}
 }
 
 func SaveQuotaDataCache() {
 	CacheQuotaDataLock.Lock()
 	defer CacheQuotaDataLock.Unlock()
 	size := len(CacheQuotaData)
+	if size == 0 {
+		return
+	}
 	// 如果缓存中有数据，就保存到数据库中
 	// 1. 先查询数据库中是否有数据
 	// 2. 如果有数据，就更新数据
 	// 3. 如果没有数据，就插入数据
-	for _, quotaData := range CacheQuotaData {
+	saved := 0
+	for cacheKey, quotaData := range CacheQuotaData {
 		quotaDataDB := &QuotaData{}
-		DB.Table("quota_data").
+		result := DB.Table("quota_data").
 			Where("user_id = ? and username = ? and model_name = ? and created_at = ? and use_group = ? and token_id = ? and channel_id = ? and node_name = ?",
 				quotaData.UserID, quotaData.Username, quotaData.ModelName, quotaData.CreatedAt, quotaData.UseGroup, quotaData.TokenID, quotaData.ChannelID, quotaData.NodeName).
 			First(quotaDataDB)
+		if result.Error != nil && !errors.Is(result.Error, gorm.ErrRecordNotFound) {
+			common.SysLog(fmt.Sprintf("save quota dashboard data query error: %s", result.Error))
+			continue
+		}
+		var err error
 		if quotaDataDB.Id > 0 {
 			//quotaDataDB.Count += quotaData.Count
 			//quotaDataDB.Quota += quotaData.Quota
 			//DB.Table("quota_data").Save(quotaDataDB)
-			increaseQuotaData(quotaData)
+			err = increaseQuotaData(quotaData)
 		} else {
-			DB.Table("quota_data").Create(quotaData)
+			err = DB.Table("quota_data").Create(quotaData).Error
 		}
+		if err != nil {
+			common.SysLog(fmt.Sprintf("save quota dashboard data error: %s", err))
+			continue
+		}
+		delete(CacheQuotaData, cacheKey)
+		saved++
 	}
-	CacheQuotaData = make(map[string]*QuotaData)
-	common.SysLog(fmt.Sprintf("保存数据看板数据成功，共保存%d条数据", size))
+	common.SysLog(fmt.Sprintf("保存数据看板数据完成，成功%d条，待重试%d条", saved, len(CacheQuotaData)))
 }
 
-func increaseQuotaData(quotaData *QuotaData) {
+func increaseQuotaData(quotaData *QuotaData) error {
 	err := DB.Table("quota_data").
 		Where("user_id = ? and username = ? and model_name = ? and created_at = ? and use_group = ? and token_id = ? and channel_id = ? and node_name = ?",
 			quotaData.UserID, quotaData.Username, quotaData.ModelName, quotaData.CreatedAt, quotaData.UseGroup, quotaData.TokenID, quotaData.ChannelID, quotaData.NodeName).
@@ -136,6 +157,7 @@ func increaseQuotaData(quotaData *QuotaData) {
 	if err != nil {
 		common.SysLog(fmt.Sprintf("increaseQuotaData error: %s", err))
 	}
+	return err
 }
 
 func GetQuotaDataByUsername(username string, startTime int64, endTime int64) (quotaData []*QuotaData, err error) {

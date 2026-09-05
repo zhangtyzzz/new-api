@@ -1,6 +1,7 @@
 package model
 
 import (
+	"database/sql"
 	"fmt"
 	"log"
 	"net/url"
@@ -18,6 +19,39 @@ import (
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 )
+
+func sqlMaxIdleConns() int {
+	maxIdleConns := common.GetEnvOrDefault("SQL_MAX_IDLE_CONNS", 100)
+	if common.DatabaseIdleMode {
+		configuredValue, explicitlyConfigured := os.LookupEnv("SQL_MAX_IDLE_CONNS")
+		if !explicitlyConfigured || strings.TrimSpace(configuredValue) == "" {
+			return 0
+		}
+	}
+	return maxIdleConns
+}
+
+func configureSQLConnectionPool(sqlDB *sql.DB) {
+	// Keep a small reusable pool during startup: migrations issue many metadata
+	// queries and would otherwise reconnect for every statement. Idle mode applies
+	// its final zero-idle policy after startup initialization finishes.
+	startupMaxIdleConns := common.GetEnvOrDefault("SQL_MAX_IDLE_CONNS", 100)
+	if common.DatabaseIdleMode && startupMaxIdleConns == 0 {
+		startupMaxIdleConns = 10
+	}
+	sqlDB.SetMaxIdleConns(startupMaxIdleConns)
+	sqlDB.SetMaxOpenConns(common.GetEnvOrDefault("SQL_MAX_OPEN_CONNS", 1000))
+	sqlDB.SetConnMaxLifetime(time.Second * time.Duration(common.GetEnvOrDefault("SQL_MAX_LIFETIME", 60)))
+}
+
+func applySQLIdleConnectionPolicy(sqlDB *sql.DB) {
+	if !common.DatabaseIdleMode {
+		return
+	}
+	maxIdleConns := sqlMaxIdleConns()
+	sqlDB.SetMaxIdleConns(maxIdleConns)
+	common.SysLog(fmt.Sprintf("database idle mode: post-startup SQL_MAX_IDLE_CONNS is %d", maxIdleConns))
+}
 
 var commonGroupCol string
 var commonKeyCol string
@@ -208,11 +242,10 @@ func InitDB() (err error) {
 		if err != nil {
 			return err
 		}
-		sqlDB.SetMaxIdleConns(common.GetEnvOrDefault("SQL_MAX_IDLE_CONNS", 100))
-		sqlDB.SetMaxOpenConns(common.GetEnvOrDefault("SQL_MAX_OPEN_CONNS", 1000))
-		sqlDB.SetConnMaxLifetime(time.Second * time.Duration(common.GetEnvOrDefault("SQL_MAX_LIFETIME", 60)))
+		configureSQLConnectionPool(sqlDB)
 
 		if !common.IsMasterNode {
+			applySQLIdleConnectionPolicy(sqlDB)
 			return nil
 		}
 		if common.UsingMainDatabase(common.DatabaseTypeMySQL) {
@@ -220,6 +253,7 @@ func InitDB() (err error) {
 		}
 		common.SysLog("database migration started")
 		err = migrateDB()
+		applySQLIdleConnectionPolicy(sqlDB)
 		return err
 	} else {
 		common.FatalLog(err)
@@ -252,15 +286,15 @@ func InitLogDB() (err error) {
 		if err != nil {
 			return err
 		}
-		sqlDB.SetMaxIdleConns(common.GetEnvOrDefault("SQL_MAX_IDLE_CONNS", 100))
-		sqlDB.SetMaxOpenConns(common.GetEnvOrDefault("SQL_MAX_OPEN_CONNS", 1000))
-		sqlDB.SetConnMaxLifetime(time.Second * time.Duration(common.GetEnvOrDefault("SQL_MAX_LIFETIME", 60)))
+		configureSQLConnectionPool(sqlDB)
 
 		if !common.IsMasterNode {
+			applySQLIdleConnectionPolicy(sqlDB)
 			return nil
 		}
 		common.SysLog("database migration started")
 		err = migrateLOGDB()
+		applySQLIdleConnectionPolicy(sqlDB)
 		return err
 	} else {
 		common.FatalLog(err)

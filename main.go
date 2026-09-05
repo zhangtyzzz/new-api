@@ -102,40 +102,50 @@ func main() {
 			model.InitChannelCache()
 		}()
 
-		go model.SyncChannelCache(common.SyncFrequency)
+		if !common.DatabaseIdleMode {
+			go model.SyncChannelCache(common.SyncFrequency)
+		}
 	}
 
 	// Warm pricing after channel cache initialization so Advanced Custom
 	// endpoint inference can read cached route settings on first request.
 	model.GetPricing()
 
-	// 热更新配置
-	go model.SyncOptions(common.SyncFrequency)
-	go controller.SyncTaskPlugins()
+	if common.DatabaseIdleMode {
+		common.SysLog("database idle mode enabled: periodic database polling is disabled")
+		// Overrides still need one initial load; subsequent local edits rebuild the
+		// registry synchronously through the management API.
+		controller.SyncTaskPluginsOnce()
+	} else {
+		// 热更新配置
+		go model.SyncOptions(common.SyncFrequency)
+		go controller.SyncTaskPlugins()
 
-	// 周期性重载授权策略，保证多节点/多 master 部署下权限变更能传播到每个实例
-	go authz.StartPolicySync(common.SyncFrequency)
+		// 周期性重载授权策略，保证多节点/多 master 部署下权限变更能传播到每个实例
+		go authz.StartPolicySync(common.SyncFrequency)
 
-	// 数据看板
-	go model.UpdateQuotaData()
-
-	if os.Getenv("CHANNEL_UPDATE_FREQUENCY") != "" {
-		frequency, err := strconv.Atoi(os.Getenv("CHANNEL_UPDATE_FREQUENCY"))
-		if err != nil {
-			common.FatalLog("failed to parse CHANNEL_UPDATE_FREQUENCY: " + err.Error())
+		if os.Getenv("CHANNEL_UPDATE_FREQUENCY") != "" {
+			frequency, err := strconv.Atoi(os.Getenv("CHANNEL_UPDATE_FREQUENCY"))
+			if err != nil {
+				common.FatalLog("failed to parse CHANNEL_UPDATE_FREQUENCY: " + err.Error())
+			}
+			go controller.AutomaticallyUpdateChannels(frequency)
 		}
-		go controller.AutomaticallyUpdateChannels(frequency)
+
+		// Codex credential auto-refresh check every 10 minutes, refresh when expires within 1 day
+		service.StartCodexCredentialAutoRefreshTask()
+
+		// Subscription quota reset task (daily/weekly/monthly/custom)
+		service.StartSubscriptionQuotaResetTask()
+
+		// Report this process as a system instance so the System Info page can show
+		// all currently alive nodes in multi-instance deployments.
+		service.StartSystemInstanceReporter()
 	}
 
-	// Codex credential auto-refresh check every 10 minutes, refresh when expires within 1 day
-	service.StartCodexCredentialAutoRefreshTask()
-
-	// Subscription quota reset task (daily/weekly/monthly/custom)
-	service.StartSubscriptionQuotaResetTask()
-
-	// Report this process as a system instance so the System Info page can show
-	// all currently alive nodes in multi-instance deployments.
-	service.StartSystemInstanceReporter()
+	if !common.DatabaseIdleMode {
+		go model.UpdateQuotaData()
+	}
 
 	// Wire task polling adaptor factory (breaks service -> relay import cycle).
 	// Must run before the system task runner starts: the async_task_poll handler
@@ -155,11 +165,14 @@ func main() {
 	// switch are enforced inside the runner and each handler's Enabled().
 	controller.RegisterScheduledSystemTasks()
 	service.StartSystemTaskRunner()
+	service.StartDatabaseIdleMaintenance()
 
-	if os.Getenv("BATCH_UPDATE_ENABLED") == "true" {
+	if os.Getenv("BATCH_UPDATE_ENABLED") == "true" && !common.DatabaseIdleMode {
 		common.BatchUpdateEnabled = true
 		common.SysLog("batch update enabled with interval " + strconv.Itoa(common.BatchUpdateInterval) + "s")
 		model.InitBatchUpdater()
+	} else if os.Getenv("BATCH_UPDATE_ENABLED") == "true" {
+		common.SysLog("database idle mode: batch updates disabled; quota writes are synchronous")
 	}
 
 	if os.Getenv("ENABLE_PPROF") == "true" {
@@ -168,11 +181,6 @@ func main() {
 		})
 		go common.Monitor()
 		common.SysLog("pprof enabled")
-	}
-
-	err = common.StartPyroScope()
-	if err != nil {
-		common.SysError(fmt.Sprintf("start pyroscope error : %v", err))
 	}
 
 	// Initialize HTTP server
@@ -195,10 +203,8 @@ func main() {
 	server.Use(middleware.RequestId())
 	server.Use(middleware.Version())
 	server.Use(middleware.I18n())
+	server.Use(middleware.DatabaseActivityMaintenance())
 	middleware.SetUpLogger(server)
-	InjectUmamiAnalytics()
-	InjectGoogleAnalytics()
-
 	// 设置路由
 	router.SetRouter(server, router.WebAssets{
 		BuildFS:   buildFS,
@@ -243,6 +249,8 @@ func main() {
 	common.SysLog("server exited")
 }
 
+// Analytics injection is retained for upstream attribution compatibility but
+// intentionally not called by this fork.
 func InjectUmamiAnalytics() {
 	analyticsInjectBuilder := &strings.Builder{}
 	if os.Getenv("UMAMI_WEBSITE_ID") != "" {
@@ -263,6 +271,8 @@ func InjectUmamiAnalytics() {
 	indexPage = bytes.ReplaceAll(indexPage, placeholder, analyticsInject)
 }
 
+// Analytics injection is retained for upstream attribution compatibility but
+// intentionally not called by this fork.
 func InjectGoogleAnalytics() {
 	analyticsInjectBuilder := &strings.Builder{}
 	if os.Getenv("GOOGLE_ANALYTICS_ID") != "" {
@@ -350,7 +360,9 @@ func InitResources() error {
 		return err
 	}
 
-	perfmetrics.Init()
+	if !common.DatabaseIdleMode {
+		perfmetrics.Init()
+	}
 
 	// 启动系统监控
 	common.StartSystemMonitor()
@@ -373,7 +385,9 @@ func InitResources() error {
 		// Don't return error, custom OAuth is not critical
 	}
 
-	service.StartAuthArtifactCleanup()
+	if !common.DatabaseIdleMode {
+		service.StartAuthArtifactCleanup()
+	}
 
 	return nil
 }

@@ -232,3 +232,32 @@ func TestEnqueueSystemTaskReportsCreatedAndExistingActive(t *testing.T) {
 	require.NotNil(t, second)
 	assert.NotEqual(t, first.TaskID, second.TaskID)
 }
+
+func TestEnqueueExistingActiveTaskWakesIdleRunner(t *testing.T) {
+	truncate(t)
+	for {
+		select {
+		case <-systemTaskWakeup:
+		default:
+			goto drained
+		}
+	}
+
+drained:
+	first, err := model.CreateSystemTask("test_stale_retry", nil, nil)
+	require.NoError(t, err)
+	_, claimed, err := model.ClaimSystemTask(first.ID, first.Type, "crashed-runner", common.GetTimestamp()+60)
+	require.NoError(t, err)
+	require.True(t, claimed)
+
+	existing, created, err := EnqueueSystemTask(first.Type, nil)
+	require.NoError(t, err)
+	require.False(t, created)
+	require.Equal(t, first.TaskID, existing.TaskID)
+
+	select {
+	case <-systemTaskWakeup:
+	default:
+		t.Fatal("retrying an active task must wake the runner so an expired crash lock can be reclaimed")
+	}
+}
