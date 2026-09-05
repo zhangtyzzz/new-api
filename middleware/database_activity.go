@@ -15,15 +15,18 @@ func DatabaseActivityMaintenance() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		path := c.Request.URL.Path
 		c.Next()
-		if shouldNotifyDatabaseActivity(path) {
+		if shouldNotifyDatabaseActivity(path, c.GetString(RouteTagKey)) {
 			service.NotifyDatabaseActivity()
 		}
 	}
 }
 
-func shouldNotifyDatabaseActivity(path string) bool {
+func shouldNotifyDatabaseActivity(path string, routeTag string) bool {
 	if path == "/api/status" {
 		return false
+	}
+	if routeTag == "api" || routeTag == "old_api" || routeTag == "relay" {
+		return true
 	}
 	if path == "/api" || strings.HasPrefix(path, "/api/") ||
 		path == "/v1" || strings.HasPrefix(path, "/v1/") ||
