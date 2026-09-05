@@ -1,17 +1,18 @@
 # Database idle mode
 
-This fork enables `DATABASE_IDLE_MODE=true` in its Docker image so a
-low-traffic, single-node deployment can let a serverless PostgreSQL database
+Set `DATABASE_IDLE_MODE=true` explicitly so a low-traffic, single-node
+deployment can let a serverless PostgreSQL database
 (for example Neon) scale to zero between real requests.
 
-The mode removes periodic database activity from:
+The image and Compose defaults remain `false` because the mode has operational
+trade-offs. When enabled, it removes periodic database activity from:
 
 - option, channel-cache, authorization-policy, and task-plugin synchronization;
 - system-instance heartbeats;
-- scheduled system-task polling (channel tests, upstream model updates, and
-  asynchronous task polling);
-- subscription quota maintenance and Codex credential pre-refresh;
-- expired dashboard-auth artifact cleanup;
+- independent scheduled system-task polling (channel tests, upstream model
+  updates, and asynchronous task polling become request-driven);
+- independent subscription quota, Codex credential refresh, and expired
+  dashboard-auth timers (these become request-driven);
 - model performance-metric collection and retention cleanup;
 - the periodic quota-dashboard flush timer. Request-generated quota data is
   flushed immediately while the request already has the database awake;
@@ -22,18 +23,23 @@ The mode removes periodic database activity from:
 - batch quota updates: `BATCH_UPDATE_ENABLED=true` is ignored in this mode and
   quota writes stay synchronous instead of relying on a background flush loop.
 
-The system-task runner remains available in a wake-driven form, so tasks
-created by this same process through the management API can still run without
-polling the database every 15 seconds. The normal `/api/status` Docker health
-check reads in-memory state and does not ping the database.
+The system-task runner and maintenance jobs remain available in a wake-driven
+form. After real API, dashboard, or relay traffic has already woken the
+database, due subscription resets, Codex credential refresh, auth cleanup,
+channel tests, upstream-model updates, asynchronous task polling, and stale
+task-lock cleanup run with their normal throttles. Retrying an active manual
+task also wakes the runner, allowing an expired lock left by a crash to recover.
+The normal `/api/status` Docker health check reads in-memory state and does not
+trigger maintenance or ping the database.
 
 ## Trade-offs
 
 Use this mode only for a single application instance. Changes made by another
-instance are not periodically reloaded. Scheduled channel tests and upstream
-model updates do not run, subscription resets are not automatic, asynchronous
-media-task polling is paused, and the System Info page does not receive live
-instance heartbeats. Restart the container after out-of-band database changes.
+instance are not periodically reloaded. Maintenance is delayed until the next
+real request, so it is not suitable when subscription boundaries or background
+media tasks must progress while the service has no traffic. The System Info
+page also does not receive live instance heartbeats. Restart the container
+after out-of-band database changes.
 
 Actual API traffic, dashboard operations, and `/api/status/test` still access
 the database and will wake it as expected.

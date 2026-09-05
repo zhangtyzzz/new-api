@@ -338,7 +338,7 @@ docker run --name new-api -d --restart always \
 | `PYROSCOPE_MUTEX_RATE` | Pyroscope mutex 采样率                               | `5` |
 | `PYROSCOPE_BLOCK_RATE` | Pyroscope block 采样率                               | `5` |
 | `HOSTNAME` | Pyroscope 标签里的主机名                                          | `new-api` |
-| `DATABASE_IDLE_MODE` | 单节点无服务器 PostgreSQL 部署下禁用周期性数据库轮询 | 本 fork 的 Docker 镜像默认为 `true` |
+| `DATABASE_IDLE_MODE` | 单节点无服务器 PostgreSQL 部署下禁用周期性数据库轮询 | 默认为 `false`，需显式启用 |
 
 📖 **完整配置：** [环境变量文档](https://docs.newapi.pro/zh/docs/installation/config-maintenance/environment-variables)
 

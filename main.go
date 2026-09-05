@@ -165,6 +165,7 @@ func main() {
 	// switch are enforced inside the runner and each handler's Enabled().
 	controller.RegisterScheduledSystemTasks()
 	service.StartSystemTaskRunner()
+	service.StartDatabaseIdleMaintenance()
 
 	if os.Getenv("BATCH_UPDATE_ENABLED") == "true" && !common.DatabaseIdleMode {
 		common.BatchUpdateEnabled = true
@@ -202,6 +203,7 @@ func main() {
 	server.Use(middleware.RequestId())
 	server.Use(middleware.Version())
 	server.Use(middleware.I18n())
+	server.Use(middleware.DatabaseActivityMaintenance())
 	middleware.SetUpLogger(server)
 	// 设置路由
 	router.SetRouter(server, router.WebAssets{

@@ -17,14 +17,26 @@ import (
 )
 
 func TestMain(m *testing.M) {
-	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	var db *gorm.DB
+	var err error
+	testDSN := os.Getenv("NEW_API_TEST_SQL_DSN")
+	if testDSN == "" {
+		db, err = gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+		common.SetDatabaseTypes(common.DatabaseTypeSQLite, common.DatabaseTypeSQLite)
+	} else {
+		if err = os.Setenv("SQL_DSN", testDSN); err != nil {
+			panic("failed to configure test DSN: " + err.Error())
+		}
+		var dbType common.DatabaseType
+		db, dbType, err = chooseDB("SQL_DSN", false)
+		common.SetDatabaseTypes(dbType, dbType)
+	}
 	if err != nil {
 		panic("failed to open test db: " + err.Error())
 	}
 	DB = db
 	LOG_DB = db
 
-	common.SetDatabaseTypes(common.DatabaseTypeSQLite, common.DatabaseTypeSQLite)
 	common.RedisEnabled = false
 	common.BatchUpdateEnabled = false
 	common.LogConsumeEnabled = true
@@ -63,7 +75,11 @@ func TestMain(m *testing.M) {
 		panic("failed to migrate: " + err.Error())
 	}
 
-	os.Exit(m.Run())
+	exitCode := m.Run()
+	if sqlDB, closeErr := db.DB(); closeErr == nil {
+		_ = sqlDB.Close()
+	}
+	os.Exit(exitCode)
 }
 
 func truncateTables(t *testing.T) {

@@ -12,8 +12,9 @@ permissions:
   packages: write
 
 concurrency:
-  group: fork-image-${{ github.ref }}
-  cancel-in-progress: true
+  # Serialize every ref because the main build also updates stable tags.
+  group: fork-image-publish
+  cancel-in-progress: false
 
 jobs:
   build:
@@ -53,7 +54,6 @@ jobs:
           platforms: ${{ matrix.platform }}
           push: true
           tags: |
-            ghcr.io/${{ github.repository_owner }}/new-api:neon-sleep-${{ matrix.arch }}
             ghcr.io/${{ github.repository_owner }}/new-api:neon-sleep-${{ github.sha }}-${{ matrix.arch }}
           cache-from: type=gha,scope=${{ matrix.arch }}
           cache-to: type=gha,mode=max,scope=${{ matrix.arch }}
@@ -78,18 +78,25 @@ jobs:
       - name: Create and push manifests
         run: |
           docker buildx imagetools create \
-            --tag ghcr.io/${{ github.repository_owner }}/new-api:neon-sleep \
-            ghcr.io/${{ github.repository_owner }}/new-api:neon-sleep-amd64 \
-            ghcr.io/${{ github.repository_owner }}/new-api:neon-sleep-arm64
-          docker buildx imagetools create \
             --tag ghcr.io/${{ github.repository_owner }}/new-api:neon-sleep-${{ github.sha }} \
             ghcr.io/${{ github.repository_owner }}/new-api:neon-sleep-${{ github.sha }}-amd64 \
             ghcr.io/${{ github.repository_owner }}/new-api:neon-sleep-${{ github.sha }}-arm64
+
+      - name: Publish stable main-branch tags
+        if: github.ref == 'refs/heads/main'
+        run: |
+          docker buildx imagetools create \
+            --tag ghcr.io/${{ github.repository_owner }}/new-api:latest \
+            --tag ghcr.io/${{ github.repository_owner }}/new-api:neon-sleep \
+            ghcr.io/${{ github.repository_owner }}/new-api:neon-sleep-${{ github.sha }}
 
       - name: Image summary
         run: |
           echo '### Published image' >> "$GITHUB_STEP_SUMMARY"
           echo '```text' >> "$GITHUB_STEP_SUMMARY"
-          echo 'ghcr.io/${{ github.repository_owner }}/new-api:neon-sleep' >> "$GITHUB_STEP_SUMMARY"
           echo 'ghcr.io/${{ github.repository_owner }}/new-api:neon-sleep-${{ github.sha }}' >> "$GITHUB_STEP_SUMMARY"
+          if [[ "${GITHUB_REF}" == "refs/heads/main" ]]; then
+            echo 'ghcr.io/${{ github.repository_owner }}/new-api:latest' >> "$GITHUB_STEP_SUMMARY"
+            echo 'ghcr.io/${{ github.repository_owner }}/new-api:neon-sleep' >> "$GITHUB_STEP_SUMMARY"
+          fi
           echo '```' >> "$GITHUB_STEP_SUMMARY"

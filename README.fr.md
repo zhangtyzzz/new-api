@@ -338,7 +338,7 @@ docker run --name new-api -d --restart always \
 | `PYROSCOPE_MUTEX_RATE` | Taux d'échantillonnage mutex Pyroscope | `5` |
 | `PYROSCOPE_BLOCK_RATE` | Taux d'échantillonnage block Pyroscope | `5` |
 | `HOSTNAME` | Nom d'hôte tagué pour Pyroscope | `new-api` |
-| `DATABASE_IDLE_MODE` | Désactive l'interrogation périodique de la base pour un déploiement PostgreSQL serverless à nœud unique | `true` dans l'image Docker de ce fork |
+| `DATABASE_IDLE_MODE` | Désactive l'interrogation périodique de la base pour un déploiement PostgreSQL serverless à nœud unique | `false` ; activation explicite requise |
 
 📖 **Configuration complète:** [Documentation des variables d'environnement](https://docs.newapi.pro/en/docs/installation/config-maintenance/environment-variables)
 

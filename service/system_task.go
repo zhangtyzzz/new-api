@@ -136,18 +136,16 @@ func StartSystemTaskRunner() {
 				// The scheduler/stale-lock pass is throttled independently of the
 				// claim pass: wakeups (e.g. a manual log cleanup) should claim
 				// immediately without re-running the scheduler every time.
-				if !common.DatabaseIdleMode {
-					now := time.Now()
-					if now.Sub(lastStaleLockCleanup) >= systemTaskStaleLockInterval {
-						lastStaleLockCleanup = now
-						if err := model.ExpireStaleSystemTaskLocks(common.GetTimestamp()); err != nil {
-							logger.LogWarn(context.Background(), fmt.Sprintf("system task stale lock cleanup failed: %v", err))
-						}
+				now := time.Now()
+				if now.Sub(lastStaleLockCleanup) >= systemTaskStaleLockInterval {
+					lastStaleLockCleanup = now
+					if err := model.ExpireStaleSystemTaskLocks(common.GetTimestamp()); err != nil {
+						logger.LogWarn(context.Background(), fmt.Sprintf("system task stale lock cleanup failed: %v", err))
 					}
-					if now.Sub(lastScheduler) >= systemTaskSchedulerInterval {
-						lastScheduler = now
-						runSystemTaskScheduler()
-					}
+				}
+				if now.Sub(lastScheduler) >= systemTaskSchedulerInterval {
+					lastScheduler = now
+					runSystemTaskScheduler()
 				}
 				runSystemTaskClaimPass(runnerID)
 			}
@@ -184,6 +182,7 @@ func StartLogCleanupTask(targetTimestamp int64) (*model.SystemTask, error) {
 		return nil, err
 	}
 	if activeTask != nil {
+		notifySystemTaskRunner()
 		return activeTask, nil
 	}
 
@@ -196,6 +195,7 @@ func StartLogCleanupTask(targetTimestamp int64) (*model.SystemTask, error) {
 	if err != nil {
 		activeTask, activeErr := model.GetActiveSystemTask(model.SystemTaskTypeLogCleanup)
 		if activeErr == nil && activeTask != nil {
+			notifySystemTaskRunner()
 			return activeTask, nil
 		}
 		return nil, err
@@ -213,6 +213,7 @@ func EnqueueSystemTask(taskType string, payload any) (*model.SystemTask, bool, e
 		return nil, false, err
 	}
 	if activeTask != nil {
+		notifySystemTaskRunner()
 		return activeTask, false, nil
 	}
 
@@ -220,6 +221,7 @@ func EnqueueSystemTask(taskType string, payload any) (*model.SystemTask, bool, e
 	if err != nil {
 		activeTask, activeErr := model.GetActiveSystemTask(taskType)
 		if activeErr == nil && activeTask != nil {
+			notifySystemTaskRunner()
 			return activeTask, false, nil
 		}
 		return nil, false, err
