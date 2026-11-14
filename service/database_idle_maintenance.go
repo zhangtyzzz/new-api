@@ -30,6 +30,7 @@ func StartDatabaseIdleMaintenance() {
 			logger.LogInfo(context.Background(), "database maintenance is wake-driven in database idle mode")
 			var lastSubscriptionReset time.Time
 			var lastCodexRefresh time.Time
+			var lastPluginCredentialRefresh time.Time
 			var lastAuthCleanup time.Time
 
 			for range databaseActivityWakeup {
@@ -41,6 +42,10 @@ func StartDatabaseIdleMaintenance() {
 				if now.Sub(lastCodexRefresh) >= codexCredentialRefreshTickInterval {
 					lastCodexRefresh = now
 					runCodexCredentialAutoRefreshOnce()
+				}
+				if now.Sub(lastPluginCredentialRefresh) >= pluginCredentialScanInterval {
+					lastPluginCredentialRefresh = now
+					RefreshExpiringPluginCredentials(now)
 				}
 				if now.Sub(lastAuthCleanup) >= authArtifactCleanupInterval {
 					lastAuthCleanup = now
